@@ -1,31 +1,145 @@
-# Training lecture for ANYCon 2019  
+#!/bin/sh
 
-Dates:  
-2019/11/01-02  
+# This will install moloch to a local centos 7 box
+# Demo mode only
 
-## Class:  
-"Teaching Your Owl to Hunt. Using Moloch for Network Analysis"
+echo -e "
+   ##################################################
+   ##### Install and configure  Moloch for Demo #####
+   ##################################################
+\n"
 
-Training will teach attendees on deploying and using the open source Moloch application as a full packet capture solution.  Course will focus on deploying a sensor to collect live traffic, processing previously collected pcaps, navigating the dashboard to filter events, creating visualizations, and scaling Moloch for speed and resiliency.
+echo -e "
+   ##############################
+   ##### Creating Data Dir  #####
+   ##############################
+\n"
+mkdir /data
 
-## Baselines used today  
-VM Centos 7  
-Moloch version 2.0.1  
-Elasticsearch 6.8.2
+echo -e "
+   ################################################
+   ##### Installing Moloch and Deps using Yum #####
+   ################################################
+\n"
 
-## Class Install Guide  
-1. Add secondary interface to VM  
-2. Clone repo  
-3. `cd ./anycon19`  
-4. `chmod u+x ./install_moloch_local_centos.sh`  
-5. `sudo ./install_moloch_local_centos.sh`  
-6. Follow on screen prompts and note password provided at the end  
+yum update -y
+yum install -y epel-release
+yum install -y nc curl wget tree tcpdump whois bash-completion bind-utils vim tcpreplay
+if [ `rpm -q moloch` == "moloch-2.0.1-1.x86_64" ] > /dev/null 2>&1; then
+   echo "
+      ##############################################
+      #####     Moloch is already installed    #####
+      #####              Exiting               #####
+      #####       If you wish remove with:     #####
+      ##### `sudo yum remove moloch.x86_64 -y` #####
+      ##############################################"
+   exit
+ else
+   yum install -y "https://files.molo.ch/builds/centos-7/moloch-2.0.1-1.x86_64.rpm" > /dev/null 2>&1
+fi
 
-More Moloch Info:  
-https://github.com/aol/moloch  
-https://molo.ch/  
-https://slackinvite.molo.ch/  
-https://demo.molo.ch/  
-https://molo.ch/articles  
+echo -e "
+   ############################
+   ##### Configure Moloch #####
+   ############################
+\n"
+sleep 2
 
-<a href="#top">Back to top</a>  
+echo "
+   ###############################################
+   ##### Follow the next set of instructions #####"
+sleep 2
+
+echo -e "\n"
+echo -e  "             ##### When prompted #####\n\n"
+sleep 2
+echo -e '   Select "ens37" as your monitoring/capture network interface'
+sleep 2
+echo -e '   Enter "yes" to install Elasticsearch server locally'
+sleep 2
+echo -e '   Enter "no-default" for password for encrypt S2S and other'
+sleep 3
+echo -e '   Enter "y" to install elasticsearch-oss'
+sleep 3
+echo -e '   Enter "yes" to Download GEO files'
+sleep 3
+echo -e "   ###############################################\n"
+
+/data/moloch/bin/Configure
+
+echo -e "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+
+echo -e "
+   ##################################
+   ##### Starting Elasticsearch #####
+   ##################################
+\n"
+systemctl enable --now elasticsearch.service > /dev/null 2>&1
+
+echo -e "
+   #####################################################
+   ##### Waiting for Elasticsearch to be reachable #####
+   #####################################################
+\n"
+
+while ! nc -vz localhost 9200 > /dev/null 2>&1 ; do sleep 1; done
+
+echo -e "
+   #########################################################
+   ##### Waiting for Elasticsearch cluster to go green #####
+   #########################################################
+\n"
+
+STATUS=`/usr/bin/curl -s localhost:9200/_cluster/health?pretty|grep status|awk '{print $3}'|cut -d\" -f2`
+while [[ "$STATUS" == "red" ]];
+  do
+    STATUS=`/usr/bin/curl -s localhost:9200/_cluster/health?pretty|grep status|awk '{print $3}'|cut -d\" -f2`
+  done
+
+echo -e "
+   ##################################
+   ##### Elasticsearch is ready #####
+   ##################################
+\n"
+
+echo -e "
+   ################################
+   ##### Initialize Moloch DB #####
+   ################################
+\n"
+/data/moloch/db/db.pl http://localhost:9200 init > /dev/null 2>&1
+
+echo '
+   ###########################################################################
+   ##### Add "admin" as the Admin User and set password to random string #####
+   ###########################################################################'
+echo -e "\n"
+AdminPassword=$(date | sha1sum | base64 | head -c 13)
+/data/moloch/bin/moloch_add_user.sh admin "Admin User" $AdminPassword --admin > /dev/null 2>&1
+
+systemctl daemon-reload
+
+echo -e "
+   ##################################
+   ##### Starting molochcapture #####
+   ##################################
+\n"
+systemctl enable --now molochcapture.service > /dev/null 2>&1
+
+echo -e "
+   #################################
+   ##### Starting molochviewer #####
+   #################################
+\n"
+systemctl enable --now molochviewer.service > /dev/null 2>&1
+
+echo -e "
+   ##########################################################
+      Visit http://localhost:8005 with your favorite browser.
+      Username: admin
+      Password: $AdminPassword
+   ##########################################################
+\n"
+# Quick check for any hung services
+sleep 10
+systemctl status elasticsearch moloch* | grep "Active:" -B 2 | GREP_COLOR='1;32' grep --color=always "running\|$"
