@@ -21,8 +21,6 @@ Elasticsearch 6.8.2
 5. `sudo ./install_moloch_local_centos.sh`  
 6. Follow on screen prompts and note password provided at the end  
 
-Class notes in: [class_material](./class_material\)  
-
 More Moloch Info:  
 https://github.com/aol/moloch  
 https://molo.ch/  
